@@ -109,7 +109,7 @@ def _build_tabicl_full_batch(
     *,
     batch_size: int,
     rng: np.random.Generator,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     _seed_tabicl_generators(rng)
     prior = PriorDataset(
         batch_size=batch_size,
@@ -133,10 +133,11 @@ def _build_tabicl_full_batch(
         device="cpu",
     )
 
-    x_full, y_full, _, seq_lens, train_sizes = prior.get_batch(batch_size=batch_size)
+    x_full, y_full, d_full, seq_lens, train_sizes = prior.get_batch(batch_size=batch_size)
     x_full = _to_dense_if_nested(x_full).to(torch.float32)
     y_full = _to_dense_if_nested(y_full).to(torch.long)
-    return x_full, y_full, seq_lens.to(torch.long), train_sizes.to(torch.long)
+    d_full = d_full.to(torch.long)
+    return x_full, y_full, d_full, seq_lens.to(torch.long), train_sizes.to(torch.long)
 
 
 def _generate_batch_tabicl(
@@ -146,13 +147,14 @@ def _generate_batch_tabicl(
     device: Optional[torch.device],
     rng: np.random.Generator,
 ) -> Dict[str, torch.Tensor]:
-    x_full, y_full, seq_lens, split_full = _build_tabicl_full_batch(cfg, batch_size=batch_size, rng=rng)
+    x_full, y_full, d_full, seq_lens, split_full = _build_tabicl_full_batch(cfg, batch_size=batch_size, rng=rng)
     unseen_label = cfg.max_classes
 
     x_list = []
     y_list = []
     split_list = []
     num_classes_list = []
+    active_features_list = []
 
     removed_class_mask = np.zeros((batch_size, cfg.max_classes), dtype=bool)
     seen_class_mask = np.zeros((batch_size, cfg.max_classes), dtype=bool)
@@ -162,7 +164,9 @@ def _generate_batch_tabicl(
         split = int(split_full[b].item())
         split = max(1, min(split, row_count - 1))
 
-        x_row = x_full[b, :row_count].clone()
+        active_features = int(d_full[b].item())
+        active_features = max(1, min(active_features, x_full.shape[-1]))
+        x_row = x_full[b, :row_count, :active_features].clone()
         x_row = torch.nan_to_num(x_row, nan=0.0, posinf=1e4, neginf=-1e4)
         y_row = y_full[b, :row_count].clone()
         y_row, num_classes = _remap_to_contiguous(y_row)
@@ -216,22 +220,25 @@ def _generate_batch_tabicl(
         y_list.append(y_new)
         split_list.append(new_split)
         num_classes_list.append(num_classes)
+        active_features_list.append(active_features)
 
     max_rows = max(x.shape[0] for x in x_list)
-    num_features = x_full.shape[-1]
+    max_features = max(x.shape[1] for x in x_list)
 
-    x_batch = torch.zeros((batch_size, max_rows, num_features), dtype=torch.float32)
+    x_batch = torch.zeros((batch_size, max_rows, max_features), dtype=torch.float32)
     y_batch = torch.full((batch_size, max_rows), fill_value=unseen_label, dtype=torch.long)
     row_mask = torch.zeros((batch_size, max_rows), dtype=torch.bool)
 
     for b in range(batch_size):
         row_len = x_list[b].shape[0]
-        x_batch[b, :row_len] = x_list[b]
+        feat_len = x_list[b].shape[1]
+        x_batch[b, :row_len, :feat_len] = x_list[b]
         y_batch[b, :row_len] = y_list[b]
         row_mask[b, :row_len] = True
 
     split_t = torch.tensor(split_list, dtype=torch.long)
     num_classes_t = torch.tensor(num_classes_list, dtype=torch.long)
+    active_features_t = torch.tensor(active_features_list, dtype=torch.long)
     removed_class_mask_t = torch.from_numpy(removed_class_mask)
     seen_class_mask_t = torch.from_numpy(seen_class_mask)
     removed_class_count_t = removed_class_mask_t.sum(dim=1)
@@ -243,6 +250,7 @@ def _generate_batch_tabicl(
         row_mask = row_mask.to(device)
         split_t = split_t.to(device)
         num_classes_t = num_classes_t.to(device)
+        active_features_t = active_features_t.to(device)
         removed_class_mask_t = removed_class_mask_t.to(device)
         seen_class_mask_t = seen_class_mask_t.to(device)
         removed_class_count_t = removed_class_count_t.to(device)
@@ -254,6 +262,7 @@ def _generate_batch_tabicl(
         "row_mask": row_mask,
         "train_test_split_index": split_t,
         "num_classes": num_classes_t,
+        "num_features": active_features_t,
         "unseen_label": unseen_label,
         "removed_class_mask": removed_class_mask_t,
         "seen_class_mask": seen_class_mask_t,

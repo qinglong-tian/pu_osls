@@ -168,6 +168,14 @@ def train(
         split = batch["train_test_split_index"]  # (B,)
         removed_count = batch["removed_class_count"]  # (B,)
         num_classes = batch["num_classes"]  # (B,)
+        num_features = batch.get("num_features")
+        if num_features is None:
+            num_features = torch.full(
+                (x.shape[0],),
+                fill_value=x.shape[2],
+                dtype=torch.long,
+                device=x.device,
+            )
         row_mask = batch["row_mask"]  # (B,R)
         if not torch.isfinite(x).all():
             x = torch.nan_to_num(x, nan=0.0, posinf=1e4, neginf=-1e4)
@@ -255,7 +263,7 @@ def train(
             test_sizes = (row_counts - split).to(torch.long)
             total_classes = num_classes.to(torch.long)
             seen_classes = seen_counts.to(torch.long)
-            feature_count = x.shape[2]
+            active_features = num_features.to(torch.long)
 
             if curriculum_cfg is not None and curriculum_cfg.enabled:
                 curr_update_idx = _curriculum_update_idx(step, curriculum_cfg)
@@ -281,7 +289,7 @@ def train(
                 f"skipped_nonfinite={skipped_nonfinite}\n"
                 f"  samples train({ _summary_stats(train_sizes) }) "
                 f"test({ _summary_stats(test_sizes) }) "
-                f"features={feature_count}\n"
+                f"features active({ _summary_stats(active_features) }) padded_max={x.shape[2]}\n"
                 f"  classes total({ _summary_stats(total_classes) }) "
                 f"seen({ _summary_stats(seen_classes) })\n"
                 f"  curriculum {curriculum_line}"

@@ -34,7 +34,7 @@ from pu_osls_tabpfn.prior_data import (
     TestLabelShiftConfig,
     generate_batch,
 )
-from pu_osls_tabpfn.train import CurriculumConfig, _build_step_cfg
+from pu_osls_tabpfn.train import CurriculumConfig, _build_step_cfg, _curriculum_update_idx, _moving_average
 
 
 def parse_args() -> argparse.Namespace:
@@ -378,15 +378,19 @@ def main() -> None:
         losses.append(float(loss_value.cpu()))
 
         if main_proc and ((step + 1) % 10 == 0 or step == start_step):
-            row_counts = row_mask.sum(dim=1).to(torch.long)
-            train_sizes = split.to(torch.long)
-            test_sizes = (row_counts - split).to(torch.long)
-            seen_classes = seen_counts.to(torch.long)
+            ma10 = _moving_average(losses, 10)
+            if curriculum_cfg is not None and curriculum_cfg.enabled:
+                curr_update_idx = _curriculum_update_idx(step, curriculum_cfg)
+                max_updates = max(0, curriculum_cfg.max_updates)
+                display_idx = min(curr_update_idx + 1, max_updates) if max_updates > 0 else 0
+                curriculum_step = f"{display_idx}/{max_updates}"
+            else:
+                curriculum_step = "disabled"
             print(
-                f"step {step+1:5d}/{args.num_steps} | loss={losses[-1]:.4f} | skipped_nonfinite={skipped_nonfinite}\n"
-                f"  samples train({_summary_stats(train_sizes)}) test({_summary_stats(test_sizes)}) "
-                f"features({_summary_stats(num_features.to(torch.long))})\n"
-                f"  classes total({_summary_stats(num_classes.to(torch.long))}) seen({_summary_stats(seen_classes)})"
+                f"step {step+1:5d}/{args.num_steps} | "
+                f"loss={losses[-1]:.4f} | "
+                f"ma_loss={ma10:.4f} | "
+                f"curriculum_step={curriculum_step}"
             )
 
         if main_proc and args.save_every_steps > 0 and (step + 1) % args.save_every_steps == 0:

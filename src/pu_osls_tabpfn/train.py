@@ -256,43 +256,19 @@ def train(
         # Progress logging
         if (step + 1) % 10 == 0 or step == 0:
             ma10 = _moving_average(losses, 10)
-            ma30 = _moving_average(losses, 30)
-            ma50 = _moving_average(losses, 50)
-            row_counts = row_mask.sum(dim=1).to(torch.long)
-            train_sizes = split.to(torch.long)
-            test_sizes = (row_counts - split).to(torch.long)
-            total_classes = num_classes.to(torch.long)
-            seen_classes = seen_counts.to(torch.long)
-            active_features = num_features.to(torch.long)
-
             if curriculum_cfg is not None and curriculum_cfg.enabled:
                 curr_update_idx = _curriculum_update_idx(step, curriculum_cfg)
-                curriculum_line = (
-                    f"enabled update={curr_update_idx}/{curriculum_cfg.max_updates} "
-                    f"every={curriculum_cfg.update_every_steps} "
-                    f"max_classes={step_cfg.max_classes} "
-                    f"features={step_cfg.min_features}-{step_cfg.max_features} "
-                    f"rows={step_cfg.min_rows}-{step_cfg.max_rows} "
-                    f"remove_lambda={step_cfg.remove_poisson_lambda:.3f}"
-                )
+                max_updates = max(0, curriculum_cfg.max_updates)
+                display_idx = min(curr_update_idx + 1, max_updates) if max_updates > 0 else 0
+                curriculum_step = f"{display_idx}/{max_updates}"
             else:
-                curriculum_line = (
-                    f"disabled max_classes={step_cfg.max_classes} "
-                    f"features={step_cfg.min_features}-{step_cfg.max_features} "
-                    f"rows={step_cfg.min_rows}-{step_cfg.max_rows} "
-                    f"remove_lambda={step_cfg.remove_poisson_lambda:.3f}"
-                )
+                curriculum_step = "disabled"
 
             print(
                 f"step {step+1:5d}/{num_steps} | "
-                f"loss_ma10={ma10:.4f} loss_ma30={ma30:.4f} loss_ma50={ma50:.4f} | "
-                f"skipped_nonfinite={skipped_nonfinite}\n"
-                f"  samples train({ _summary_stats(train_sizes) }) "
-                f"test({ _summary_stats(test_sizes) }) "
-                f"features active({ _summary_stats(active_features) }) padded_max={x.shape[2]}\n"
-                f"  classes total({ _summary_stats(total_classes) }) "
-                f"seen({ _summary_stats(seen_classes) })\n"
-                f"  curriculum {curriculum_line}"
+                f"loss={losses[-1]:.4f} | "
+                f"ma_loss={ma10:.4f} | "
+                f"curriculum_step={curriculum_step}"
             )
 
         if eval_interval > 0 and (step + 1) % eval_interval == 0:

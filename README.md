@@ -1,7 +1,7 @@
 # PU/OSLS TabPFN (synthetic prior)
 
 Research codebase for training and evaluating a lightweight TabPFN-style transformer on synthetic tabular tasks for:
-- positive–unlabeled (PU) learning
+- positive-unlabeled (PU) learning
 - open-set label shift (OSLS)
 
 ## Project layout
@@ -9,6 +9,12 @@ Research codebase for training and evaluating a lightweight TabPFN-style transfo
 ```text
 .
 ├── pyproject.toml
+├── requirement.txt
+├── scripts/
+│   ├── train_cluster.py
+│   └── slurm/
+│       ├── train_pretraining_multigpu.sbatch
+│       └── train_pretraining_smoketest.sbatch
 ├── src/
 │   └── pu_osls_tabpfn/
 │       ├── __init__.py
@@ -29,6 +35,12 @@ Research codebase for training and evaluating a lightweight TabPFN-style transfo
 
 ```bash
 pip install -e .
+```
+
+Install pinned dependencies:
+
+```bash
+pip install -r requirement.txt
 ```
 
 For development tools:
@@ -63,7 +75,7 @@ Tune run settings:
 pu-osls-train --num-steps 1000 --batch-size 8 --eval-interval 100 --eval-tasks 200 --seed 0 --prior-backend tabicl
 ```
 
-Enable curriculum learning (simple → complex datasets):
+Enable curriculum learning (simple -> complex datasets):
 
 ```bash
 pu-osls-train --use-curriculum --curriculum-update-every-steps 500 --curriculum-max-updates 20 --curriculum-start-max-classes 2 --curriculum-start-max-features 5
@@ -75,13 +87,15 @@ Use legacy prior generator:
 pu-osls-train --prior-backend legacy
 ```
 
-Open notebook workflow:
+Notebook workflow:
 
 ```bash
 jupyter notebook notebooks/pretraining.ipynb
 ```
 
-Cluster multi-GPU training + checkpoint resume:
+## Cluster training
+
+Run distributed training with checkpoint resume:
 
 ```bash
 torchrun --nproc_per_node=4 scripts/train_cluster.py \
@@ -93,10 +107,11 @@ torchrun --nproc_per_node=4 scripts/train_cluster.py \
   --resume-from artifacts/cluster_checkpoints/latest.pt
 ```
 
-Slurm template:
+Submit Slurm jobs:
 
 ```bash
 sbatch scripts/slurm/train_pretraining_multigpu.sbatch
+sbatch scripts/slurm/train_pretraining_smoketest.sbatch
 ```
 
 ## Method summary

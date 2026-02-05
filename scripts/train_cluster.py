@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import os
 import signal
 import sys
@@ -159,7 +160,10 @@ def maybe_load_checkpoint(
     if not resume_from.exists():
         return 0, []
 
-    checkpoint = torch.load(resume_from, map_location=device)
+    load_kwargs = {"map_location": device}
+    if "weights_only" in inspect.signature(torch.load).parameters:
+        load_kwargs["weights_only"] = False
+    checkpoint = torch.load(resume_from, **load_kwargs)
     base_model = model.module if isinstance(model, DDP) else model
     base_model.load_state_dict(checkpoint["model_state_dict"])
     optimizer.load_state_dict(checkpoint["optimizer_state_dict"])

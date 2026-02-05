@@ -9,6 +9,8 @@
 #SBATCH --time=5:00:00
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --signal=TERM@120
+#SBATCH --mail-user=qltian2021@gmail.com
+#SBATCH --mail-type=BEGIN,END,FAIL,TIME_LIMIT
 
 set -euo pipefail
 
@@ -41,10 +43,10 @@ python -m torch.distributed.run \
   --nproc_per_node="$NPROC" \
   --master_port="$MASTER_PORT" \
   scripts/train_cluster.py \
-  --num-steps 30000 \
-  --global-batch-size 64 \
-  --lr 4e-4 \
+  --num-steps 50000 \
+  --global-batch-size 32 \
+  --lr 3e-4 \
   --use-curriculum \
-  --save-every-steps 500 \
+  --save-every-steps 250 \
   --checkpoint-dir artifacts/cluster_checkpoints \
   --resume-from artifacts/cluster_checkpoints/latest.pt

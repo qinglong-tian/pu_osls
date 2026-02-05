@@ -81,6 +81,24 @@ Open notebook workflow:
 jupyter notebook notebooks/pretraining.ipynb
 ```
 
+Cluster multi-GPU training + checkpoint resume:
+
+```bash
+torchrun --nproc_per_node=4 scripts/train_cluster.py \
+  --use-curriculum \
+  --global-batch-size 64 \
+  --num-steps 30000 \
+  --save-every-steps 200 \
+  --checkpoint-dir artifacts/cluster_checkpoints \
+  --resume-from artifacts/cluster_checkpoints/latest.pt
+```
+
+Slurm template:
+
+```bash
+sbatch scripts/slurm/train_pretraining_multigpu.sbatch
+```
+
 ## Method summary
 
 For each synthetic task:

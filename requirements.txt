@@ -1,0 +1,17 @@
+# Core runtime dependencies (from pyproject.toml)
+joblib
+numpy
+scipy
+scikit-learn
+torch
+
+# Optional: notebook workflow
+jupyter
+ipykernel
+
+# Optional: tree prior backend
+# xgboost
+
+# Optional: development
+# pytest
+# ruff

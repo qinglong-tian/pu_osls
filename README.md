@@ -1,135 +1,158 @@
-# PU/OSLS TabPFN (synthetic prior)
+# PU/OSLS TabPFN
 
-Research codebase for training and evaluating a lightweight TabPFN-style transformer on synthetic tabular tasks for:
+This repository contains the starting implementation for pretraining and evaluating a lightweight TabPFN-style transformer on synthetic tabular tasks for:
 - positive-unlabeled (PU) learning
 - open-set label shift (OSLS)
 
-## Project layout
+## What is implemented
 
-```text
-.
-├── pyproject.toml
-├── requirement.txt
-├── scripts/
-│   ├── train_cluster.py
-│   └── slurm/
-│       ├── train_pretraining_multigpu.sbatch
-│       └── train_pretraining_smoketest.sbatch
-├── src/
-│   └── pu_osls_tabpfn/
-│       ├── __init__.py
-│       ├── prior_data.py
-│       ├── prior_data_legacy.py
-│       ├── tabicl_prior/
-│       │   └── *.py
-│       ├── model.py
-│       ├── eval_pu_osls.py
-│       └── train.py
-├── tests/
-│   └── test_prior_data.py
-└── notebooks/
-    └── pretraining.ipynb
-```
+- On-the-fly synthetic task generation with two backends:
+  - `tabicl` (default): SCM-based priors in `src/pu_osls_tabpfn/tabicl_prior`
+  - `legacy`: simple linear synthetic generator
+- PU/OSLS task construction by removing selected classes from train rows only.
+- Transformer classifier with a custom target encoder that uses a learnable unknown-label embedding for test rows.
+- Training with optional curriculum learning (from easier to harder priors).
+- Evaluation metrics for outlier detection and classification quality:
+  - AUROC, AUPRC, TPR@FPR targets
+  - seen-class accuracy / balanced accuracy
+  - overall mapped accuracy / balanced accuracy
+- Single-process training (`pu-osls-train`) and distributed training (`scripts/train_cluster.py`) with checkpoint resume.
 
 ## Installation
+
+Editable install:
 
 ```bash
 pip install -e .
 ```
 
-Install pinned dependencies:
+Pinned runtime dependencies:
 
 ```bash
 pip install -r requirement.txt
 ```
 
-For development tools:
+Optional extras:
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev]"         # pytest, ruff
+pip install -e ".[tree-prior]"  # xgboost for tree_scm / mix_scm
 ```
 
-Optional (for TabICL `tree_scm` / `mix_scm` priors):
+## Quick start
 
-```bash
-pip install -e ".[tree-prior]"
-```
-
-## Usage
-
-Train with defaults:
+Run default training:
 
 ```bash
 pu-osls-train
 ```
 
-or:
+Equivalent module call:
 
 ```bash
 python -m pu_osls_tabpfn.train
 ```
 
-Tune run settings:
+Example with custom settings:
 
 ```bash
-pu-osls-train --num-steps 1000 --batch-size 8 --eval-interval 100 --eval-tasks 200 --seed 0 --prior-backend tabicl
+pu-osls-train \
+  --num-steps 1000 \
+  --batch-size 8 \
+  --eval-interval 100 \
+  --eval-tasks 200 \
+  --seed 0 \
+  --prior-backend tabicl
 ```
 
-Enable curriculum learning (simple -> complex datasets):
+Enable curriculum:
 
 ```bash
-pu-osls-train --use-curriculum --curriculum-update-every-steps 500 --curriculum-max-updates 20 --curriculum-start-max-classes 2 --curriculum-start-max-features 5
+pu-osls-train \
+  --use-curriculum \
+  --curriculum-update-every-steps 500 \
+  --curriculum-max-updates 20 \
+  --curriculum-start-max-classes 2 \
+  --curriculum-start-max-features 5
 ```
 
-Use legacy prior generator:
+Switch to the legacy generator:
 
 ```bash
 pu-osls-train --prior-backend legacy
 ```
 
-Notebook workflow:
+See all CLI options:
+
+```bash
+pu-osls-train --help
+```
+
+## Notebook workflow
+
+Open:
 
 ```bash
 jupyter notebook notebooks/pretraining.ipynb
 ```
 
-## Cluster training
+The notebook covers:
+- config setup
+- batch sanity check
+- optional GPU memory probe
+- long-run curriculum training
+- final evaluation and checkpoint save to `artifacts/pretrained_pu_osls_tabpfn.pt`
 
-Run distributed training with checkpoint resume:
+## Distributed / cluster training
+
+Run multi-GPU training locally or on a node:
 
 ```bash
 torchrun --nproc_per_node=4 scripts/train_cluster.py \
   --use-curriculum \
   --global-batch-size 64 \
   --num-steps 30000 \
-  --save-every-steps 200 \
+  --save-every-steps 500 \
   --checkpoint-dir artifacts/cluster_checkpoints \
   --resume-from artifacts/cluster_checkpoints/latest.pt
 ```
 
-Submit Slurm jobs:
+Slurm examples:
 
 ```bash
 sbatch scripts/slurm/train_pretraining_multigpu.sbatch
 sbatch scripts/slurm/train_pretraining_smoketest.sbatch
 ```
 
-## Method summary
+## Tests
 
-For each synthetic task:
-1. Generate full datasets with TabICL prior (`src/pu_osls_tabpfn/tabicl_prior`).
-2. Keep all classes in both train and test for the full dataset stage.
-3. Apply PU/OSLS construction by removing sampled classes from **train rows only** (Poisson-based count).
-4. Train with a reserved unseen class (`max_classes + 1` output head).
-5. Evaluate outlier detection + seen-class + overall mapped accuracy.
+Run current test suite:
 
-Notes:
-- `prior_data.py` is the default TabICL-backed data module.
-- `prior_data_legacy.py` keeps the previous linear synthetic generator.
-- Test-set label shift hooks are scaffolded but currently a no-op (future extension).
-- In curriculum mode, `min_features` stays fixed; only `max_features` expands over update stages.
+```bash
+pytest
+```
 
-## References
+Current tests validate batch shapes and mask consistency for both `tabicl` and `legacy` backends.
 
-- Grinsztajn et al., *TabPFN* (ICML 2023)
-- Aigul et al., *TabICL* (NeurIPS 2023)
+## Repository structure
+
+```text
+.
+├── src/pu_osls_tabpfn/
+│   ├── model.py              # custom TabPFN-style model
+│   ├── prior_data.py         # main PU/OSLS batch generator
+│   ├── prior_data_legacy.py  # legacy generator
+│   ├── eval_pu_osls.py       # evaluation metrics
+│   ├── train.py              # single-process training
+│   └── tabicl_prior/         # SCM priors, hp sampling, dataset generation utilities
+├── scripts/train_cluster.py  # DDP training + checkpointing
+├── scripts/slurm/            # Slurm job templates
+├── notebooks/pretraining.ipynb
+├── tests/test_prior_data.py
+└── requirement.txt
+```
+
+## Current limitations
+
+- Test-set label shift is scaffolded but not implemented (`TestLabelShiftConfig` beyond `"none"` raises `NotImplementedError`).
+- `tree_scm` / `mix_scm` paths require `xgboost` and are significantly slower than `mlp_scm`.
